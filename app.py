@@ -6,6 +6,7 @@ import os
 import subprocess
 import requests
 import base64
+from PIL import Image, ImageOps, ImageDraw
 
 app = Flask(__name__)
 
@@ -48,7 +49,7 @@ def print_document():
     img_path = data.get('img', '')  # 이미지 데이터
 
     # PDF 생성
-    pdf_filename = f'certificate.pdf'
+    pdf_filename = "certificate.pdf"
     pdf_path = os.path.join('output', pdf_filename)
     
     # 폰트 경로 설정
@@ -79,7 +80,7 @@ def generate_pdf(name, pdf_path, font_path, img_path):
         page.insert_image(background_rect, filename=background_image_path)
 
     # 새로운 이미지 추가
-    image_rect = fitz.Rect(100, 200, 300, 400)  # 고정된 특정 위치에 맞게
+    image_rect = fitz.Rect(69, 186, 208, 337)  # 고정된 특정 위치에 맞게 139x151 크기로 추가
 
     # 이미지 파일 경로 설정
     if img_path.startswith('http://') or img_path.startswith('https://'):
@@ -105,7 +106,18 @@ def generate_pdf(name, pdf_path, font_path, img_path):
     print("Image Path: ", temp_img_path)
     if os.path.exists(temp_img_path):
         print(f"Adding image: {temp_img_path}")
-        page.insert_image(image_rect, filename=temp_img_path)
+        
+        # 이미지를 정사각형 비율로 크기 조정하고 검정색 테두리 추가
+        with Image.open(temp_img_path) as img:
+            img = ImageOps.fit(img, (556, 604))  # 556x604 크기로 정사각형 비율로 맞춤
+            border_color = 'black'
+            border_size = 3
+            bordered_img = ImageOps.expand(img, border=border_size, fill=border_color)
+            bordered_img_path = 'bordered_temp_image.png'
+            bordered_img.save(bordered_img_path)
+        
+        # 테두리가 있는 이미지를 PDF에 삽입
+        page.insert_image(image_rect, filename=bordered_img_path)
 
     # 폰트 설정 (custom font embedding)
     custom_font = None
@@ -122,8 +134,10 @@ def generate_pdf(name, pdf_path, font_path, img_path):
     pdf_document.close()
 
     # 임시 이미지 파일 삭제
-    if img_path.startswith('http://') or img_path.startswith('https://') or img_path.startswith('data:image/'):
+    if os.path.exists(temp_img_path):
         os.remove(temp_img_path)
+    if os.path.exists(bordered_img_path):
+        os.remove(bordered_img_path)
 
 
 def print_pdf(pdf_path):
