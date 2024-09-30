@@ -6,15 +6,17 @@ import os
 import subprocess
 import requests
 import base64
-from PIL import Image, ImageOps, ImageDraw
+from PIL import Image, ImageOps
 
 app = Flask(__name__)
 
 CORS(app)
 
+
 @app.route('/static/fonts/<path:filename>')
 def custom_static_fonts(filename):
     return send_from_directory('static/fonts', filename, mimetype='font/ttf')
+
 
 @app.route('/test', methods=['GET'])
 def test_page():
@@ -31,6 +33,7 @@ def test_page():
     # PDF 파일을 브라우저에서 다운로드하거나 표시할 수 있도록 응답
     return send_file(pdf_path, mimetype='application/pdf', as_attachment=False)
 
+
 @app.route('/preview', methods=['GET'])
 def preview_page():
     name = request.args.get('name', '홍길동')  # 기본값 설정
@@ -42,11 +45,12 @@ def preview_page():
 
     return html_out
 
+
 @app.route('/print', methods=['POST'])
 def print_document():
     data = request.get_json()
     name = data.get('name', '홍길동')  # 기본값 설정
-    img_path = data.get('img', '')  # 이미지 데이터
+    img_path = data.get('img', None)  # 이미지 데이터
 
     # PDF 생성
     pdf_filename = "certificate.pdf"
@@ -61,12 +65,9 @@ def print_document():
         print_pdf(pdf_path)
     except Exception as e:
         print(f"Error printing PDF: {e}")
-        return jsonify({'status': f'Error printing PDF: {e}'}), 500
+    finally:
+        return jsonify({'status': 'Printed successfully'}), 200
 
-    # 출력 후 PDF 파일 삭제 (선택 사항)
-    os.remove(pdf_path)
-
-    return jsonify({'status': 'Printed successfully'}), 200
 
 def generate_pdf(name, pdf_path, font_path, img_path):
     # PDF 문서 생성
@@ -79,45 +80,51 @@ def generate_pdf(name, pdf_path, font_path, img_path):
     if os.path.exists(background_image_path):
         page.insert_image(background_rect, filename=background_image_path)
 
-    # 새로운 이미지 추가
-    image_rect = fitz.Rect(69, 186, 208, 337)  # 고정된 특정 위치에 맞게 139x151 크기로 추가
+    # 이미지 추가 (이미지가 있는 경우에만)
+    if img_path:
+        image_rect = fitz.Rect(69, 186, 208, 337)  # 고정된 특정 위치에 맞게 139x151 크기로 추가
 
-    # 이미지 파일 경로 설정
-    if img_path.startswith('http://') or img_path.startswith('https://'):
-        # 웹 상의 이미지 다운로드
-        response = requests.get(img_path)
-        if response.status_code == 200:
+        # 이미지 파일 경로 설정
+        if img_path.startswith('http://') or img_path.startswith('https://'):
+            # 웹 상의 이미지 다운로드
+            response = requests.get(img_path)
+            if response.status_code == 200:
+                temp_img_path = 'temp_image.png'
+                with open(temp_img_path, 'wb') as f:
+                    f.write(response.content)
+            else:
+                raise Exception(f"Failed to download image from {img_path}")
+        elif img_path.startswith('data:image/'):
+            # Base64 이미지 디코딩
+            header, encoded = img_path.split(',', 1)
+            img_data = base64.b64decode(encoded)
             temp_img_path = 'temp_image.png'
             with open(temp_img_path, 'wb') as f:
-                f.write(response.content)
+                f.write(img_data)
         else:
-            raise Exception(f"Failed to download image from {img_path}")
-    elif img_path.startswith('data:image/'):
-        # Base64 이미지 디코딩
-        header, encoded = img_path.split(',', 1)
-        img_data = base64.b64decode(encoded)
-        temp_img_path = 'temp_image.png'
-        with open(temp_img_path, 'wb') as f:
-            f.write(img_data)
-    else:
-        # 로컬 파일 경로
-        temp_img_path = img_path
+            # 로컬 파일 경로
+            temp_img_path = img_path
 
-    print("Image Path: ", temp_img_path)
-    if os.path.exists(temp_img_path):
-        print(f"Adding image: {temp_img_path}")
-        
-        # 이미지를 정사각형 비율로 크기 조정하고 검정색 테두리 추가
-        with Image.open(temp_img_path) as img:
-            img = ImageOps.fit(img, (556, 604))  # 556x604 크기로 정사각형 비율로 맞춤
-            border_color = 'black'
-            border_size = 3
-            bordered_img = ImageOps.expand(img, border=border_size, fill=border_color)
-            bordered_img_path = 'bordered_temp_image.png'
-            bordered_img.save(bordered_img_path)
-        
-        # 테두리가 있는 이미지를 PDF에 삽입
-        page.insert_image(image_rect, filename=bordered_img_path)
+        if os.path.exists(temp_img_path):
+            print(f"Adding image: {temp_img_path}")
+            
+            # 이미지를 정사각형 비율로 크기 조정하고 검정색 테두리 추가
+            with Image.open(temp_img_path) as img:
+                img = ImageOps.fit(img, (556, 604))  # 556x604 크기로 정사각형 비율로 맞춤
+                border_color = 'black'
+                border_size = 3
+                bordered_img = ImageOps.expand(img, border=border_size, fill=border_color)
+                bordered_img_path = 'bordered_temp_image.png'
+                bordered_img.save(bordered_img_path)
+            
+            # 테두리가 있는 이미지를 PDF에 삽입
+            page.insert_image(image_rect, filename=bordered_img_path)
+
+        # 임시 이미지 파일 삭제
+        if os.path.exists(temp_img_path):
+            os.remove(temp_img_path)
+        if os.path.exists(bordered_img_path):
+            os.remove(bordered_img_path)
 
     # 폰트 설정 (custom font embedding)
     custom_font = None
@@ -132,12 +139,6 @@ def generate_pdf(name, pdf_path, font_path, img_path):
     # PDF 저장
     pdf_document.save(pdf_path)
     pdf_document.close()
-
-    # 임시 이미지 파일 삭제
-    if os.path.exists(temp_img_path):
-        os.remove(temp_img_path)
-    if os.path.exists(bordered_img_path):
-        os.remove(bordered_img_path)
 
 
 def print_pdf(pdf_path):
