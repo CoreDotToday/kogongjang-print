@@ -81,7 +81,7 @@ def generate_pdf(name, pdf_path, font_path):
 
     # 텍스트 추가 (이름)
     font_size = 24
-    text_rect = fitz.Rect(20, 310, 500, 350)  # 이름 텍스트를 표시할 영역
+    text_rect = fitz.Rect(20, 300, 500, 350)  # 이름 텍스트를 표시할 영역
     page.insert_textbox(
         text_rect, name, fontsize=font_size, fontfile=font_path, fontname="CustomFont", align=fitz.TEXT_ALIGN_CENTER
     )
