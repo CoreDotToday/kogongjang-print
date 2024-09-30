@@ -4,6 +4,8 @@ import fitz  # PyMuPDF
 import uuid
 import os
 import subprocess
+import requests
+import base64
 
 app = Flask(__name__)
 
@@ -43,6 +45,7 @@ def preview_page():
 def print_document():
     data = request.get_json()
     name = data.get('name', '홍길동')  # 기본값 설정
+    img_path = data.get('img', '')  # 이미지 데이터
 
     # PDF 생성
     pdf_filename = f'certificate.pdf'
@@ -50,33 +53,61 @@ def print_document():
     
     # 폰트 경로 설정
     font_path = 'static/fonts/nanum.ttf'
-    generate_pdf(name, pdf_path, font_path)
+    generate_pdf(name, pdf_path, font_path, img_path)
 
-     # PDF 출력
-    print_pdf(pdf_path)
+    # PDF 출력
+    try:
+        print_pdf(pdf_path)
+    except Exception as e:
+        print(f"Error printing PDF: {e}")
+        return jsonify({'status': f'Error printing PDF: {e}'}), 500
 
     # 출력 후 PDF 파일 삭제 (선택 사항)
     os.remove(pdf_path)
 
     return jsonify({'status': 'Printed successfully'}), 200
 
-def generate_pdf(name, pdf_path, font_path):
+def generate_pdf(name, pdf_path, font_path, img_path):
     # PDF 문서 생성
     pdf_document = fitz.open()  # 새 문서 생성
     page = pdf_document.new_page(width=595, height=842)  # A4 사이즈 페이지 추가
 
     # 배경 이미지 추가
-    image_path = 'static/images/background.png'
-    rect = fitz.Rect(0, 0, 595, 842)  # 페이지 전체 크기에 맞게
-    if os.path.exists(image_path):
-        page.insert_image(rect, filename=image_path)
+    background_image_path = 'static/images/background.png'
+    background_rect = fitz.Rect(0, 0, 595, 842)  # 페이지 전체 크기에 맞게
+    if os.path.exists(background_image_path):
+        page.insert_image(background_rect, filename=background_image_path)
+
+    # 새로운 이미지 추가
+    image_rect = fitz.Rect(100, 200, 300, 400)  # 고정된 특정 위치에 맞게
+
+    # 이미지 파일 경로 설정
+    if img_path.startswith('http://') or img_path.startswith('https://'):
+        # 웹 상의 이미지 다운로드
+        response = requests.get(img_path)
+        if response.status_code == 200:
+            temp_img_path = 'temp_image.png'
+            with open(temp_img_path, 'wb') as f:
+                f.write(response.content)
+        else:
+            raise Exception(f"Failed to download image from {img_path}")
+    elif img_path.startswith('data:image/'):
+        # Base64 이미지 디코딩
+        header, encoded = img_path.split(',', 1)
+        img_data = base64.b64decode(encoded)
+        temp_img_path = 'temp_image.png'
+        with open(temp_img_path, 'wb') as f:
+            f.write(img_data)
+    else:
+        # 로컬 파일 경로
+        temp_img_path = img_path
+
+    print("Image Path: ", temp_img_path)
+    if os.path.exists(temp_img_path):
+        print(f"Adding image: {temp_img_path}")
+        page.insert_image(image_rect, filename=temp_img_path)
 
     # 폰트 설정 (custom font embedding)
-    # try:
-    #     # Load the custom font
-    #     custom_font = pdf_document.insert_font(file=font_path)  # Embed custom font
-    # except Exception as e:
-    #     print(f"Error loading font: {e}")
     custom_font = None
 
     # 텍스트 추가 (이름)
@@ -89,6 +120,10 @@ def generate_pdf(name, pdf_path, font_path):
     # PDF 저장
     pdf_document.save(pdf_path)
     pdf_document.close()
+
+    # 임시 이미지 파일 삭제
+    if img_path.startswith('http://') or img_path.startswith('https://') or img_path.startswith('data:image/'):
+        os.remove(temp_img_path)
 
 
 def print_pdf(pdf_path):
