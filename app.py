@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
+from flask_cors import CORS  # CORS 추가
 import fitz  # PyMuPDF
 import uuid
 import os
 import subprocess
 
 app = Flask(__name__)
+
+CORS(app)
 
 @app.route('/static/fonts/<path:filename>')
 def custom_static_fonts(filename):
@@ -42,7 +45,7 @@ def print_document():
     name = data.get('name', '홍길동')  # 기본값 설정
 
     # PDF 생성
-    pdf_filename = f'{uuid.uuid4()}.pdf'
+    pdf_filename = f'certificate.pdf'
     pdf_path = os.path.join('output', pdf_filename)
     
     # 폰트 경로 설정
