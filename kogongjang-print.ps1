@@ -1,5 +1,5 @@
 # 실행할 파이썬 실행 파일과 스크립트 경로 정의
-$ProjectDir = "C:\Users\CORE\Downloads\kogongjang-print"
+$ProjectDir = "C:\Users\CORE\Documents\kogongjang-print-main"
 $PythonExe = Join-Path $ProjectDir "venv\Scripts\python.exe"
 $PythonScript = Join-Path $ProjectDir "app.py"
 
