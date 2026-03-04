@@ -7,7 +7,7 @@ import subprocess
 import requests
 import base64
 from PIL import Image, ImageOps
-from config import load_config, find_sumatra
+from config import load_config, find_sumatra, find_background, get_backgrounds_dir
 
 app = Flask(__name__)
 CORS(app)
@@ -15,9 +15,16 @@ CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+@app.route('/backgrounds/<path:filename>')
+def serve_background(filename):
+    """외부 backgrounds/ 폴더의 이미지를 서빙"""
+    return send_from_directory(get_backgrounds_dir(), filename)
+
+
 def get_background_path():
     config = load_config()
-    return os.path.join(BASE_DIR, 'static', 'images', config['background'])
+    path = find_background(config['background'])
+    return path if path else os.path.join(BASE_DIR, 'static', 'images', config['background'])
 
 
 def get_font_path():
@@ -44,7 +51,13 @@ def preview_page():
     name = request.args.get('name', '홍길동')
     config = load_config()
     font_path = f"static/fonts/{config['font']}"
-    image_path = f"static/images/{config['background']}"
+    bg_file = config['background']
+    # 외부 폴더에 있으면 /backgrounds/ 경로, 아니면 내장 static
+    ext_path = os.path.join(get_backgrounds_dir(), bg_file)
+    if os.path.exists(ext_path):
+        image_path = f"backgrounds/{bg_file}"
+    else:
+        image_path = f"static/images/{bg_file}"
     return render_template('template.html', name=name, font_path=font_path, image_path=image_path)
 
 

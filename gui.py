@@ -61,7 +61,8 @@ try:
     import winreg
     import logging
     import queue
-    from config import load_config, save_config, find_sumatra
+    import shutil
+    from config import load_config, save_config, find_sumatra, get_backgrounds_dir
 except Exception as e:
     show_startup_error(
         "감사장 인쇄 시스템 시작 실패",
@@ -124,8 +125,10 @@ class CertificateApp:
         ctk.CTkLabel(frame, text="배경 템플릿:").grid(row=row, column=0, sticky=tk.W, padx=10, pady=8)
         self.bg_var = tk.StringVar()
         self.bg_combo = ctk.CTkComboBox(frame, variable=self.bg_var, values=self._get_backgrounds(),
-                                         width=280, command=lambda _: self._save_ui_to_config())
-        self.bg_combo.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=10, pady=8)
+                                         width=220, command=lambda _: self._save_ui_to_config())
+        self.bg_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=8)
+        ctk.CTkButton(frame, text="추가", command=self._add_background, width=60).grid(
+            row=row, column=2, sticky=tk.W, padx=5)
         row += 1
 
         # 폰트
@@ -268,9 +271,38 @@ class CertificateApp:
         frame.grid_rowconfigure(row, weight=1)
 
     def _get_backgrounds(self):
-        pattern = os.path.join(BASE_DIR, 'static', 'images', 'background_*.png')
-        files = glob.glob(pattern)
-        return [os.path.basename(f) for f in sorted(files)]
+        names = set()
+        # 외부 backgrounds/ 폴더
+        ext_pattern = os.path.join(get_backgrounds_dir(), '*.png')
+        for f in glob.glob(ext_pattern):
+            names.add(os.path.basename(f))
+        # 내장 static/images/
+        int_pattern = os.path.join(BASE_DIR, 'static', 'images', 'background_*.png')
+        for f in glob.glob(int_pattern):
+            names.add(os.path.basename(f))
+        return sorted(names)
+
+    def _add_background(self):
+        """파일 선택 다이얼로그로 배경 이미지를 backgrounds/ 폴더에 복사"""
+        paths = filedialog.askopenfilenames(
+            title="배경 이미지 선택",
+            filetypes=[("PNG 이미지", "*.png"), ("All files", "*.*")]
+        )
+        if not paths:
+            return
+        dest_dir = get_backgrounds_dir()
+        for path in paths:
+            filename = os.path.basename(path)
+            dest = os.path.join(dest_dir, filename)
+            if os.path.abspath(path) != os.path.abspath(dest):
+                shutil.copy2(path, dest)
+        # 드롭다운 갱신
+        new_values = self._get_backgrounds()
+        self.bg_combo.configure(values=new_values)
+        # 마지막으로 추가한 파일 선택
+        last = os.path.basename(paths[-1])
+        self.bg_var.set(last)
+        self._save_ui_to_config()
 
     def _get_fonts(self):
         pattern = os.path.join(BASE_DIR, 'static', 'fonts', '*.ttf')
