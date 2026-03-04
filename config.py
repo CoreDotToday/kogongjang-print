@@ -12,7 +12,10 @@ DEFAULT_CONFIG = {
     "name_width": 500,
     "name_height": 350,
     "sumatra_path": "auto",
-    "port": 5000
+    "port": 5000,
+    "kiosk_url": "",
+    "kiosk_auto_open": False,
+    "kiosk_zoom": 100
 }
 
 

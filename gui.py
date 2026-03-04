@@ -56,6 +56,8 @@ try:
     import threading
     import glob
     import socket
+    import subprocess
+    import tempfile
     import winreg
     from config import load_config, save_config, find_sumatra
 except Exception as e:
@@ -79,7 +81,7 @@ class CertificateApp:
     def __init__(self, root):
         self.root = root
         self.root.title("감사장 인쇄 시스템")
-        self.root.geometry("520x630")
+        self.root.geometry("520x780")
         self.root.resizable(False, False)
 
         self.config = load_config()
@@ -186,6 +188,40 @@ class CertificateApp:
             row=row, column=0, columnspan=3, sticky=tk.EW, padx=10, pady=10)
         row += 1
 
+        # --- 키오스크 설정 ---
+        ctk.CTkLabel(frame, text="키오스크 URL:").grid(row=row, column=0, sticky=tk.W, padx=10, pady=8)
+        self.kiosk_url_var = tk.StringVar()
+        ctk.CTkEntry(frame, textvariable=self.kiosk_url_var, width=280,
+                      placeholder_text="http://localhost:5000/preview?name=홍길동").grid(
+            row=row, column=1, columnspan=2, sticky=tk.W, padx=10, pady=8)
+        row += 1
+
+        # 키오스크 옵션 행
+        kiosk_opt_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        kiosk_opt_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=10, pady=4)
+
+        self.kiosk_auto_var = tk.BooleanVar()
+        ctk.CTkCheckBox(kiosk_opt_frame, text="서버 시작 시 크롬 자동 열기 (풀스크린)",
+                         variable=self.kiosk_auto_var,
+                         command=self._save_kiosk_config).pack(side=tk.LEFT)
+
+        ctk.CTkLabel(kiosk_opt_frame, text="  확대율:").pack(side=tk.LEFT, padx=(16, 0))
+        self.kiosk_zoom_var = tk.StringVar()
+        ctk.CTkEntry(kiosk_opt_frame, textvariable=self.kiosk_zoom_var, width=50).pack(side=tk.LEFT, padx=2)
+        ctk.CTkLabel(kiosk_opt_frame, text="%").pack(side=tk.LEFT)
+        row += 1
+
+        # 키오스크 저장 버튼
+        ctk.CTkButton(frame, text="키오스크 설정 저장", command=self._save_kiosk_config, width=140,
+                       fg_color="#FFC107", text_color="black", hover_color="#FFD54F").grid(
+            row=row, column=1, sticky=tk.W, padx=10, pady=4)
+        row += 1
+
+        # 구분선
+        ctk.CTkFrame(frame, height=2, fg_color="gray40").grid(
+            row=row, column=0, columnspan=3, sticky=tk.EW, padx=10, pady=10)
+        row += 1
+
         # 서버 제어 버튼
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
         btn_frame.grid(row=row, column=0, columnspan=3, pady=8)
@@ -230,6 +266,9 @@ class CertificateApp:
             self.sumatra_var.set(sumatra)
         self.port_var.set(str(self.config.get('port', 5000)))
         self.autostart_var.set(self._is_autostart_enabled())
+        self.kiosk_url_var.set(self.config.get('kiosk_url', ''))
+        self.kiosk_auto_var.set(self.config.get('kiosk_auto_open', False))
+        self.kiosk_zoom_var.set(str(self.config.get('kiosk_zoom', 100)))
 
     def _is_autostart_enabled(self):
         """레지스트리에 자동 실행이 등록되어 있는지 확인"""
@@ -261,6 +300,63 @@ class CertificateApp:
         except Exception as e:
             messagebox.showerror("오류", f"자동 실행 설정 실패: {e}")
             self.autostart_var.set(not self.autostart_var.get())
+
+    def _save_kiosk_config(self):
+        """키오스크 설정을 config.json에 저장"""
+        try:
+            zoom = int(self.kiosk_zoom_var.get())
+            if zoom < 50 or zoom > 300:
+                messagebox.showwarning("경고", "확대율은 50~300 사이로 입력해주세요.")
+                return
+        except ValueError:
+            messagebox.showwarning("경고", "확대율에 숫자를 입력해주세요.")
+            return
+        self.config['kiosk_url'] = self.kiosk_url_var.get().strip()
+        self.config['kiosk_auto_open'] = self.kiosk_auto_var.get()
+        self.config['kiosk_zoom'] = zoom
+        save_config(self.config)
+
+    def _open_kiosk_chrome(self):
+        """Chrome을 키오스크(풀스크린) 모드로 실행"""
+        url = self.kiosk_url_var.get().strip()
+        if not url:
+            return
+        chrome = self._find_chrome()
+        if not chrome:
+            messagebox.showerror("오류", "Chrome을 찾을 수 없습니다.\nChrome이 설치되어 있는지 확인해주세요.")
+            return
+        try:
+            kiosk_data_dir = os.path.join(
+                os.environ.get("LOCALAPPDATA", tempfile.gettempdir()),
+                "KogongjangKiosk", "ChromeData"
+            )
+            zoom = self.config.get('kiosk_zoom', 100)
+            scale_factor = zoom / 100.0
+            subprocess.Popen([
+                chrome,
+                "--kiosk",
+                "--new-window",
+                "--no-first-run",
+                "--no-default-browser-check",
+                f"--user-data-dir={kiosk_data_dir}",
+                f"--force-device-scale-factor={scale_factor}",
+                url,
+            ])
+        except Exception as e:
+            messagebox.showerror("오류", f"Chrome 실행 실패: {e}")
+
+    @staticmethod
+    def _find_chrome():
+        """Windows에서 Chrome 실행 파일 경로를 탐색"""
+        candidates = [
+            os.path.join(os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        return None
 
     def _save_ui_to_config(self):
         try:
@@ -308,6 +404,10 @@ class CertificateApp:
         self.start_btn.configure(state=tk.DISABLED)
         self.stop_btn.configure(state=tk.NORMAL)
         self.status_label.configure(text=f"● 서버 실행 중 (포트 {port})", text_color="#4CAF50")
+
+        # 키오스크 자동 열기
+        if self.kiosk_auto_var.get() and self.kiosk_url_var.get().strip():
+            self.root.after(500, self._open_kiosk_chrome)
 
     def _stop_server(self):
         if not self.server_running:
