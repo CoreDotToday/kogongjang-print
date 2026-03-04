@@ -59,6 +59,8 @@ try:
     import subprocess
     import tempfile
     import winreg
+    import logging
+    import queue
     from config import load_config, save_config, find_sumatra
 except Exception as e:
     show_startup_error(
@@ -77,17 +79,32 @@ ctk.set_default_color_theme("blue")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+class QueueLogHandler(logging.Handler):
+    """logging 핸들러 — 로그를 큐로 전달"""
+    def __init__(self, log_queue):
+        super().__init__()
+        self.log_queue = log_queue
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.log_queue.put(msg + "\n")
+        except Exception:
+            pass
+
+
 class CertificateApp:
     def __init__(self, root):
         self.root = root
         self.root.title("감사장 인쇄 시스템")
-        self.root.geometry("520x780")
-        self.root.resizable(False, False)
+        self.root.geometry("520x900")
+        self.root.resizable(False, True)
 
         self.config = load_config()
         self.server_thread = None
         self.http_server = None
         self.server_running = False
+        self.log_queue = queue.Queue()
 
         self._build_ui()
         self._load_config_to_ui()
@@ -238,7 +255,17 @@ class CertificateApp:
 
         # 상태 표시
         self.status_label = ctk.CTkLabel(frame, text="서버 중지됨", text_color="gray")
-        self.status_label.grid(row=row, column=0, columnspan=3, pady=10)
+        self.status_label.grid(row=row, column=0, columnspan=3, pady=(10, 4))
+        row += 1
+
+        # 로그 텍스트박스
+        ctk.CTkLabel(frame, text="서버 로그:").grid(row=row, column=0, sticky=tk.W, padx=10, pady=(4, 0))
+        row += 1
+
+        self.log_text = ctk.CTkTextbox(frame, height=120, font=ctk.CTkFont(size=11))
+        self.log_text.grid(row=row, column=0, columnspan=3, sticky=tk.NSEW, padx=10, pady=(0, 10))
+        self.log_text.configure(state=tk.DISABLED)
+        frame.grid_rowconfigure(row, weight=1)
 
     def _get_backgrounds(self):
         pattern = os.path.join(BASE_DIR, 'static', 'images', 'background_*.png')
@@ -397,10 +424,13 @@ class CertificateApp:
             messagebox.showerror("오류", f"서버 시작 실패: {e}")
             return
 
+        self._setup_log_redirect()
         self.server_thread = threading.Thread(target=self.http_server.serve_forever, daemon=True)
         self.server_thread.start()
         self.server_running = True
+        self._poll_log_queue()
 
+        self._append_log(f"서버 시작됨 — http://0.0.0.0:{port}\n")
         self.start_btn.configure(state=tk.DISABLED)
         self.stop_btn.configure(state=tk.NORMAL)
         self.status_label.configure(text=f"● 서버 실행 중 (포트 {port})", text_color="#4CAF50")
@@ -415,6 +445,7 @@ class CertificateApp:
         self.http_server.shutdown()
         self.server_running = False
 
+        self._append_log("서버 중지됨\n")
         self.start_btn.configure(state=tk.NORMAL)
         self.stop_btn.configure(state=tk.DISABLED)
         self.status_label.configure(text="서버 중지됨", text_color="gray")
@@ -449,6 +480,35 @@ class CertificateApp:
         if self.tray_icon:
             self.tray_icon.stop()
         self.root.after(0, self._on_close)
+
+    def _append_log(self, msg):
+        """로그 텍스트박스에 메시지 추가"""
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.insert(tk.END, msg)
+        self.log_text.see(tk.END)
+        self.log_text.configure(state=tk.DISABLED)
+
+    def _poll_log_queue(self):
+        """큐에서 로그를 가져와 UI 업데이트 (100ms 간격)"""
+        try:
+            while True:
+                line = self.log_queue.get_nowait()
+                self._append_log(line)
+        except queue.Empty:
+            pass
+        self.root.after(100, self._poll_log_queue)
+
+    def _setup_log_redirect(self):
+        """werkzeug 로거를 큐 핸들러로 리다이렉트"""
+        handler = QueueLogHandler(self.log_queue)
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s  %(message)s", datefmt="%H:%M:%S"
+        ))
+        for name in ("werkzeug",):
+            logger = logging.getLogger(name)
+            logger.handlers = [handler]
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
 
     def _on_close(self):
         if self.server_running:
