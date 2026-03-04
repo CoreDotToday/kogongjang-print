@@ -56,6 +56,7 @@ try:
     import threading
     import glob
     import socket
+    import winreg
     from config import load_config, save_config, find_sumatra
 except Exception as e:
     show_startup_error(
@@ -230,57 +231,36 @@ class CertificateApp:
         self.port_var.set(str(self.config.get('port', 5000)))
         self.autostart_var.set(self._is_autostart_enabled())
 
-    def _get_startup_vbs_path(self):
-        """Windows 시작프로그램 폴더의 .vbs 파일 경로"""
-        startup_dir = os.path.join(
-            os.environ.get('APPDATA', ''),
-            'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
-        )
-        return os.path.join(startup_dir, '감사장인쇄.vbs')
-
     def _is_autostart_enabled(self):
-        """시작프로그램에 등록되어 있는지 확인"""
-        return os.path.exists(self._get_startup_vbs_path())
+        """레지스트리에 자동 실행이 등록되어 있는지 확인"""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, "감사장인쇄")
+            winreg.CloseKey(key)
+            return True
+        except Exception:
+            return False
 
     def _toggle_autostart(self):
-        """체크박스 토글 시 시작프로그램 등록/해제"""
-        vbs_path = self._get_startup_vbs_path()
-        if self.autostart_var.get():
-            # 등록
-            exe_path = os.path.abspath(sys.argv[0])
-            if exe_path.endswith('.exe'):
-                # Nuitka exe 빌드
-                vbs_content = (
-                    'Set WshShell = CreateObject("WScript.Shell")\n'
-                    f'WshShell.Run chr(34) & "{exe_path}" & chr(34), 0\n'
-                    'Set WshShell = Nothing\n'
-                )
+        """체크박스 토글 시 레지스트리에 자동 실행 등록/해제"""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                0, winreg.KEY_SET_VALUE)
+            if self.autostart_var.get():
+                exe_path = os.path.abspath(sys.argv[0])
+                winreg.SetValueEx(key, "감사장인쇄", 0, winreg.REG_SZ, f'"{exe_path}"')
             else:
-                # Python 스크립트 실행
-                python_exe = sys.executable
-                script_path = os.path.abspath(__file__)
-                work_dir = os.path.dirname(script_path)
-                vbs_content = (
-                    'Set WshShell = CreateObject("WScript.Shell")\n'
-                    f'WshShell.CurrentDirectory = "{work_dir}"\n'
-                    f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " '
-                    f'& chr(34) & "{script_path}" & chr(34), 0\n'
-                    'Set WshShell = Nothing\n'
-                )
-            try:
-                with open(vbs_path, 'w', encoding='utf-8') as f:
-                    f.write(vbs_content)
-            except Exception as e:
-                messagebox.showerror("오류", f"시작프로그램 등록 실패: {e}")
-                self.autostart_var.set(False)
-        else:
-            # 해제
-            try:
-                if os.path.exists(vbs_path):
-                    os.remove(vbs_path)
-            except Exception as e:
-                messagebox.showerror("오류", f"시작프로그램 해제 실패: {e}")
-                self.autostart_var.set(True)
+                try:
+                    winreg.DeleteValue(key, "감사장인쇄")
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            messagebox.showerror("오류", f"자동 실행 설정 실패: {e}")
+            self.autostart_var.set(not self.autostart_var.get())
 
     def _save_ui_to_config(self):
         try:
