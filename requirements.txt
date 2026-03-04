@@ -1,6 +1,9 @@
-Flask==3.0.3
-PyMuPDF==1.24.10
-flask_cors==5.0.0
-pillow==10.4.0
-requests==2.32.3
-pystray==0.19.5
+Flask>=3.0.3
+PyMuPDF>=1.24.10
+flask_cors>=5.0.0
+pillow>=10.4.0
+requests>=2.32.3
+pystray>=0.19.5
+customtkinter
+nuitka
+ordered-set

@@ -1,3 +1,6 @@
 /venv
 config.json
 /output
+__pycache__/
+/dist
+error.log
