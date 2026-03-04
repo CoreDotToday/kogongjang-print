@@ -23,6 +23,22 @@ cmd = [
     "--include-package=customtkinter",
     "--include-package-data=customtkinter",
 
+    # 불필요한 패키지 제외 (Anaconda 환경에서 딸려오는 것 방지)
+    "--nofollow-import-to=scipy",
+    "--nofollow-import-to=numpy",
+    "--nofollow-import-to=pandas",
+    "--nofollow-import-to=matplotlib",
+    "--nofollow-import-to=pytest",
+    "--nofollow-import-to=IPython",
+    "--nofollow-import-to=notebook",
+    "--nofollow-import-to=setuptools",
+    "--nofollow-import-to=pip",
+    "--nofollow-import-to=conda",
+    "--nofollow-import-to=sklearn",
+    "--nofollow-import-to=torch",
+    "--nofollow-import-to=tensorflow",
+    "--nofollow-import-to=mkl",
+
     # tkinter 플러그인
     "--enable-plugin=tk-inter",
 
@@ -30,8 +46,8 @@ cmd = [
     "--include-data-dir=static=static",
     "--include-data-dir=templates=templates",
 
-    # 빌드 후 중간 파일 정리
-    "--remove-output",
+    # 멀티코어 빌드
+    f"--jobs={__import__('os').cpu_count()}",
 
     # 메인 스크립트
     "gui.py",
