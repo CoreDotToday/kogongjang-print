@@ -106,6 +106,7 @@ class CertificateApp:
         self.http_server = None
         self.server_running = False
         self.log_queue = queue.Queue()
+        self.kiosk_process = None  # Chrome 키오스크 프로세스
 
         self._build_ui()
         self._load_config_to_ui()
@@ -391,7 +392,7 @@ class CertificateApp:
             )
             zoom = self.config.get('kiosk_zoom', 100)
             scale_factor = zoom / 100.0
-            subprocess.Popen([
+            self.kiosk_process = subprocess.Popen([
                 chrome,
                 "--kiosk",
                 "--new-window",
@@ -401,6 +402,9 @@ class CertificateApp:
                 f"--force-device-scale-factor={scale_factor}",
                 url,
             ])
+            # app.py의 close-kiosk 엔드포인트에서 접근할 수 있도록 공유
+            from app import kiosk_process_holder
+            kiosk_process_holder["process"] = self.kiosk_process
         except Exception as e:
             messagebox.showerror("오류", f"Chrome 실행 실패: {e}")
 

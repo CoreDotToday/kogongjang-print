@@ -36,12 +36,39 @@
             font-size: 24pt;
             color: #000;
         }
+        #close-kiosk-btn {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 9999;
+            background: rgba(244, 67, 54, 0.85);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 18px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #close-kiosk-btn:hover {
+            background: rgba(244, 67, 54, 1);
+        }
+        @media print {
+            #close-kiosk-btn { display: none; }
+        }
     </style>
 </head>
 <body>
+    <button id="close-kiosk-btn" onclick="closeKiosk()">종료</button>
     <div id="background"></div>
     <div id="name-field">
         {{ name }}
     </div>
+    <script>
+    function closeKiosk() {
+        fetch('/close-kiosk', { method: 'POST' })
+            .then(function() { window.close(); })
+            .catch(function() {});
+    }
+    </script>
 </body>
 </html>

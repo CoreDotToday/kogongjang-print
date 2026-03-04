@@ -12,6 +12,9 @@ from config import load_config, find_sumatra, find_background, get_backgrounds_d
 app = Flask(__name__)
 CORS(app)
 
+# GUI에서 키오스크 프로세스를 공유하기 위한 변수
+kiosk_process_holder = {"process": None}
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -77,6 +80,16 @@ def print_document():
         print(f"Error printing PDF: {e}")
     finally:
         return jsonify({'status': 'Printed successfully'}), 200
+
+
+@app.route('/close-kiosk', methods=['POST'])
+def close_kiosk():
+    proc = kiosk_process_holder.get("process")
+    if proc and proc.poll() is None:
+        proc.terminate()
+        kiosk_process_holder["process"] = None
+        return jsonify({'status': 'Kiosk closed'}), 200
+    return jsonify({'status': 'No kiosk running'}), 200
 
 
 def generate_pdf(name, pdf_path, img_path=None):
