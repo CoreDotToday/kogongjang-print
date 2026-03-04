@@ -5,7 +5,7 @@ import sys
 cmd = [
     sys.executable, "-m", "nuitka",
     "--mode=onefile",
-    "--zig",
+    "--mingw64",
     "--windows-console-mode=disable",
     "--output-filename=감사장인쇄.exe",
     "--output-dir=dist",
