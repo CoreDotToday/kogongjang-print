@@ -78,7 +78,7 @@ class CertificateApp:
     def __init__(self, root):
         self.root = root
         self.root.title("감사장 인쇄 시스템")
-        self.root.geometry("520x580")
+        self.root.geometry("520x630")
         self.root.resizable(False, False)
 
         self.config = load_config()
@@ -170,6 +170,16 @@ class CertificateApp:
         ctk.CTkEntry(frame, textvariable=self.port_var, width=100).grid(row=row, column=1, sticky=tk.W, padx=10, pady=8)
         row += 1
 
+        # 윈도우 시작 시 자동 실행
+        self.autostart_var = tk.BooleanVar()
+        self.autostart_check = ctk.CTkCheckBox(
+            frame, text="윈도우 시작 시 자동 실행",
+            variable=self.autostart_var,
+            command=self._toggle_autostart
+        )
+        self.autostart_check.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=10, pady=8)
+        row += 1
+
         # 구분선
         ctk.CTkFrame(frame, height=2, fg_color="gray40").grid(
             row=row, column=0, columnspan=3, sticky=tk.EW, padx=10, pady=10)
@@ -218,6 +228,59 @@ class CertificateApp:
         else:
             self.sumatra_var.set(sumatra)
         self.port_var.set(str(self.config.get('port', 5000)))
+        self.autostart_var.set(self._is_autostart_enabled())
+
+    def _get_startup_vbs_path(self):
+        """Windows 시작프로그램 폴더의 .vbs 파일 경로"""
+        startup_dir = os.path.join(
+            os.environ.get('APPDATA', ''),
+            'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
+        )
+        return os.path.join(startup_dir, '감사장인쇄.vbs')
+
+    def _is_autostart_enabled(self):
+        """시작프로그램에 등록되어 있는지 확인"""
+        return os.path.exists(self._get_startup_vbs_path())
+
+    def _toggle_autostart(self):
+        """체크박스 토글 시 시작프로그램 등록/해제"""
+        vbs_path = self._get_startup_vbs_path()
+        if self.autostart_var.get():
+            # 등록
+            exe_path = os.path.abspath(sys.argv[0])
+            if exe_path.endswith('.exe'):
+                # Nuitka exe 빌드
+                vbs_content = (
+                    'Set WshShell = CreateObject("WScript.Shell")\n'
+                    f'WshShell.Run chr(34) & "{exe_path}" & chr(34), 0\n'
+                    'Set WshShell = Nothing\n'
+                )
+            else:
+                # Python 스크립트 실행
+                python_exe = sys.executable
+                script_path = os.path.abspath(__file__)
+                work_dir = os.path.dirname(script_path)
+                vbs_content = (
+                    'Set WshShell = CreateObject("WScript.Shell")\n'
+                    f'WshShell.CurrentDirectory = "{work_dir}"\n'
+                    f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " '
+                    f'& chr(34) & "{script_path}" & chr(34), 0\n'
+                    'Set WshShell = Nothing\n'
+                )
+            try:
+                with open(vbs_path, 'w', encoding='utf-8') as f:
+                    f.write(vbs_content)
+            except Exception as e:
+                messagebox.showerror("오류", f"시작프로그램 등록 실패: {e}")
+                self.autostart_var.set(False)
+        else:
+            # 해제
+            try:
+                if os.path.exists(vbs_path):
+                    os.remove(vbs_path)
+            except Exception as e:
+                messagebox.showerror("오류", f"시작프로그램 해제 실패: {e}")
+                self.autostart_var.set(True)
 
     def _save_ui_to_config(self):
         try:
