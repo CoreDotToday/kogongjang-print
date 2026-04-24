@@ -1,6 +1,9 @@
 /venv
-config.json
+/build_venv
+/data
 /output
-__pycache__/
 /dist
+__pycache__/
+# 레거시 (data/ 도입 이전): 혹시 남아있는 경우를 위해 유지
+config.json
 error.log

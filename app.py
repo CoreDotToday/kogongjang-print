@@ -1,19 +1,22 @@
 from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
 from flask_cors import CORS
-import fitz  # PyMuPDF
+from fpdf import FPDF
 import uuid
 import os
 import subprocess
 import requests
 import base64
 from PIL import Image, ImageOps
-from config import load_config, find_sumatra, find_background, get_backgrounds_dir
+from config import load_config, find_sumatra, find_background, find_font, get_backgrounds_dir, get_output_dir
 
 app = Flask(__name__)
 CORS(app)
 
 # GUI에서 키오스크 프로세스를 공유하기 위한 변수
 kiosk_process_holder = {"process": None}
+
+# GUI가 graceful shutdown 콜백을 등록하는 곳. /quit 라우트가 호출한다.
+shutdown_callback_holder = {"callback": None}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,7 +35,8 @@ def get_background_path():
 
 def get_font_path():
     config = load_config()
-    return os.path.join(BASE_DIR, 'static', 'fonts', config['font'])
+    path = find_font(config['font'])
+    return path if path else os.path.join(BASE_DIR, 'static', 'fonts', config['font'])
 
 
 @app.route('/static/fonts/<path:filename>')
@@ -44,7 +48,7 @@ def custom_static_fonts(filename):
 def test_page():
     name = request.args.get('name', '홍길동')
     pdf_filename = f'{uuid.uuid4()}.pdf'
-    pdf_path = os.path.join('output', pdf_filename)
+    pdf_path = os.path.join(get_output_dir(), pdf_filename)
     generate_pdf(name, pdf_path)
     return send_file(pdf_path, mimetype='application/pdf', as_attachment=False)
 
@@ -71,7 +75,7 @@ def print_document():
     img_path = data.get('img', None)
 
     pdf_filename = "certificate.pdf"
-    pdf_path = os.path.join('output', pdf_filename)
+    pdf_path = os.path.join(get_output_dir(), pdf_filename)
     generate_pdf(name, pdf_path, img_path)
 
     try:
@@ -86,10 +90,41 @@ def print_document():
 def close_kiosk():
     proc = kiosk_process_holder.get("process")
     if proc and proc.poll() is None:
-        proc.terminate()
+        try:
+            # Chrome은 GPU/렌더러/네트워크 등 자식 프로세스를 띄우므로
+            # taskkill /F /T 로 PID 트리를 통째로 강제 종료해야 창이 닫힌다.
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                shell=False,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                timeout=5,
+            )
+        except Exception:
+            proc.terminate()  # 폴백
         kiosk_process_holder["process"] = None
         return jsonify({'status': 'Kiosk closed'}), 200
     return jsonify({'status': 'No kiosk running'}), 200
+
+
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    subprocess.Popen(['shutdown', '/s', '/t', '0'], shell=False)
+    return jsonify({'status': 'Shutting down'}), 200
+
+
+@app.route('/quit', methods=['POST'])
+def quit_app():
+    """GUI(서버 + 트레이 + 키오스크) 정상 종료. PC 전원에는 영향 없음."""
+    cb = shutdown_callback_holder.get("callback")
+    if cb:
+        cb()
+        return jsonify({'status': 'Shutting down'}), 200
+    return jsonify({'status': 'No shutdown handler registered'}), 503
+
+
+def pt_to_mm(pt):
+    """포인트(pt) 단위를 mm 단위로 변환"""
+    return pt * 25.4 / 72
 
 
 def generate_pdf(name, pdf_path, img_path=None):
@@ -97,17 +132,24 @@ def generate_pdf(name, pdf_path, img_path=None):
     font_path = get_font_path()
     background_image_path = get_background_path()
 
-    pdf_document = fitz.open()
-    page = pdf_document.new_page(width=595, height=842)
+    pdf = FPDF(unit='mm', format='A4')
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=False)
 
     # 배경 이미지
-    background_rect = fitz.Rect(0, 0, 595, 842)
     if os.path.exists(background_image_path):
-        page.insert_image(background_rect, filename=background_image_path)
+        pdf.image(background_image_path, x=0, y=0, w=210, h=297)
 
     # 이미지 추가 (이미지가 있는 경우에만)
     if img_path:
-        image_rect = fitz.Rect(69, 186, 208, 337)
+        # fitz.Rect(69, 186, 208, 337) → mm 변환
+        img_x = pt_to_mm(69)
+        img_y = pt_to_mm(186)
+        img_w = pt_to_mm(208 - 69)
+        img_h = pt_to_mm(337 - 186)
+
+        temp_img_path = None
+        bordered_img_path = None
 
         if img_path.startswith('http://') or img_path.startswith('https://'):
             response = requests.get(img_path)
@@ -126,32 +168,34 @@ def generate_pdf(name, pdf_path, img_path=None):
         else:
             temp_img_path = img_path
 
-        if os.path.exists(temp_img_path):
+        if temp_img_path and os.path.exists(temp_img_path):
             with Image.open(temp_img_path) as img:
                 img = ImageOps.fit(img, (556, 604))
                 bordered_img = ImageOps.expand(img, border=3, fill='black')
                 bordered_img_path = 'bordered_temp_image.png'
                 bordered_img.save(bordered_img_path)
-            page.insert_image(image_rect, filename=bordered_img_path)
+            pdf.image(bordered_img_path, x=img_x, y=img_y, w=img_w, h=img_h)
 
-        if os.path.exists(temp_img_path):
+        if temp_img_path and temp_img_path != img_path and os.path.exists(temp_img_path):
             os.remove(temp_img_path)
-        if os.path.exists(bordered_img_path):
+        if bordered_img_path and os.path.exists(bordered_img_path):
             os.remove(bordered_img_path)
 
-    # 텍스트 추가 (이름)
+    # 텍스트 추가 (이름) — 한글 폰트 등록
+    pdf.add_font('CustomFont', '', font_path, uni=True)
     font_size = config['font_size']
-    text_rect = fitz.Rect(
-        config['name_x'], config['name_y'],
-        config['name_width'], config['name_height']
-    )
-    page.insert_textbox(
-        text_rect, name, fontsize=font_size, fontfile=font_path,
-        fontname="CustomFont", align=fitz.TEXT_ALIGN_CENTER
-    )
+    pdf.set_font('CustomFont', '', font_size)
 
-    pdf_document.save(pdf_path)
-    pdf_document.close()
+    # config 좌표(pt)를 mm로 변환
+    text_x = pt_to_mm(config['name_x'])
+    text_y = pt_to_mm(config['name_y'])
+    text_w = pt_to_mm(config['name_width'] - config['name_x'])
+    text_h = pt_to_mm(config['name_height'] - config['name_y'])
+
+    pdf.set_xy(text_x, text_y)
+    pdf.cell(w=text_w, h=text_h, text=name, align='C')
+
+    pdf.output(pdf_path)
 
 
 def print_pdf(pdf_path):
@@ -166,7 +210,6 @@ def print_pdf(pdf_path):
 
 
 if __name__ == '__main__':
-    if not os.path.exists('output'):
-        os.makedirs('output')
+    get_output_dir()  # data/output/ 보장 생성
     config = load_config()
     app.run(host='0.0.0.0', port=config['port'])
